@@ -8,13 +8,13 @@ A full-screen HTML-based timer designed to display the current speaker/event and
 -   Top bar (10% height) shows the current speaker/event.
     -   During breaks, it also shows the next event and its start time.
 -   Main area (90% height) shows a large countdown number (minutes remaining).
--   **Virtual Schedule Change**: A 5-minute Q&A period is automatically initiated before the scheduled end of talks.
+-   **Breaks**: A 5-minute Q&A period is automatically initiated before the scheduled end of talks.
     -   During the main talk, the timer counts down to the start of Q&A.
     -   During Q&A, the top bar shows "Questions", and the timer counts down the remaining 5 minutes in red.
 -   **Minute Progress Bar**: A horizontal bar under the timer number visually represents the current minute.
     -   The colored (filled) part is right-aligned and shrinks from left to right as the minute progresses.
     -   The bar's color matches the timer number (white or red during Q&A).
--   **Dynamic Schedule Delay**: Press the 'd' key to open a prompt and enter a delay in minutes (positive to delay, negative to advance). The entire schedule adjusts accordingly. A small note in the bottom right indicates the current delay.
+-   **Dynamic Schedule Delay**: Press the 'd' key to open a prompt and enter a delay in minutes (positive to delay, negative to advance). The entire schedule adjusts accordingly. A small note in the bottom right indicates the current delay. The delay is reset at the next break.
 -   **Schedule Embedded in HTML**: The program schedule is embedded as CSV-formatted text directly within the `timer.html` file for easy editing and portability.
 
 ## Files
@@ -41,7 +41,7 @@ A full-screen HTML-based timer designed to display the current speaker/event and
 
 ## Embedded Schedule Format (within `timer.html`)
 
-Inside `timer.html`, find the section:
+Inside `index.html`, find the section:
 ```html
 <!-- Embedded Schedule Data -->
 <script type="text/csv-data" id="scheduleDataCsv">

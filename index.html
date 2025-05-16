@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Program Timer</title>
+
+    <!-- Embedded Schedule Data -->
+    <script type="text/csv-data" id="scheduleDataCsv">
+startTime,endTime,speaker
+08:00,09:00,Coffee / Find your seat
+09:00,09:15,Olof Mogren
+09:15,10:00,Keynote 1: Oisin Mac Aodha
+10:00,10:20,Oral: Edmond Sacre
+10:20,10:40,Oral: Hilda Sandström
+10:40,11:10,Coffee break
+11:10,11:40,Oral: Dan Stowell
+11:40,12:00,Oral: John Martinsson
+12:00,13:15,Lunch
+13:15,14:00,Keynote 2: Christian Igel
+14:00,14:20,Oral: Nico Lang
+14:20,14:40,Oral: Stefanos Georganos
+14:40,15:10,Coffee
+15:10,15:30,Oral: Alouette van Hove
+15:30,15:50,Oral: Shorouq Zahra
+15:50,16:10,Oral: David Thulke
+16:10,16:20,Concluding remarks
+16:20,18:00,Posters and mingle
+18:00,18:01,Relocation to dinner
+// example schedule from the 2025 Nordic Workshop on AI for Climate Change -- https://climateainordics.com/
+    </script>
+    <!-- End Embedded Schedule Data -->
+
+    <style>
+        body, html {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background-color: black;
+            color: white;
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #top-bar {
+            height: 10vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 3.5vh;
+            text-align: center;
+            padding: 0.5vh 1vh;
+            box-sizing: border-box;
+            line-height: 1.2;
+        }
+
+        #timer-display {
+            height: 85vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+
+        #countdown-minutes {
+            font-size: 65vh;
+            font-weight: bold;
+            line-height: 1;
+        }
+
+        #minute-progress-bar-container {
+            width: 70%;
+            height: 3vh;
+            background-color: #333;
+            margin-top: 2vh;
+            border-radius: 3px;
+            display: none;
+            position: relative;
+        }
+
+        #minute-progress-bar-fill {
+            position: absolute;
+            top: 0;
+            right: 0;
+            height: 100%;
+            width: 100%;
+            background-color: white;
+            border-radius: 3px;
+        }
+
+        .questions-mode #countdown-minutes {
+            color: red;
+        }
+
+        #delay-note {
+            position: fixed;
+            bottom: 10px;
+            right: 10px;
+            font-size: 2vh;
+            color: #ccc;
+            background-color: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 3px;
+            display: none;
+        }
+         #error-message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: darkred;
+            color: white;
+            padding: 20px;
+            border-radius: 5px;
+            font-size: 3vh;
+            text-align: center;
+            display: none; /* Hidden by default */
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="top-bar">
+        <span id="current-speaker">Loading Schedule...</span>
+    </div>
+    <div id="timer-display">
+        <span id="countdown-minutes">--</span>
+        <div id="minute-progress-bar-container">
+            <div id="minute-progress-bar-fill"></div>
+        </div>
+    </div>
+    <div id="delay-note"></div>
+    <div id="error-message"></div>
+
+    <script>
+        // --- Global Variables ---
+        const topBarElement = document.getElementById('top-bar');
+        const speakerElement = document.getElementById('current-speaker');
+        const countdownElement = document.getElementById('countdown-minutes');
+        const bodyElement = document.body;
+        const delayNoteElement = document.getElementById('delay-note');
+        const minuteProgressBarContainer = document.getElementById('minute-progress-bar-container');
+        const minuteProgressBarFill = document.getElementById('minute-progress-bar-fill');
+        const errorMessageElement = document.getElementById('error-message');
+
+        const VIRTUAL_DEADLINE_OFFSET_MINUTES = 5;
+        let scheduleDelayMinutes = 0;
+        let rawProgram = []; 
+        let parsedProgram = []; 
+        let timerInterval = null;
+
+
+        // --- Core Functions ---
+        function parseEmbeddedCsvData(csvText) {
+            try {
+                const lines = csvText.trim().split('\n');
+                if (lines.length < 2) {
+                    throw new Error("Embedded schedule data is empty or has no data rows.");
+                }
+                const headers = lines[0].split(',').map(header => header.trim());
+                if (headers.length !== 3 || headers[0] !== 'startTime' || headers[1] !== 'endTime' || headers[2] !== 'speaker') {
+                    throw new Error("Embedded schedule data has incorrect headers. Expected 'startTime,endTime,speaker'.");
+                }
+                const scheduleData = [];
+                for (let i = 1; i < lines.length; i++) {
+                    const values = lines[i].split(',').map(value => value.trim());
+                    if (values.length === headers.length) {
+                        const entry = {};
+                        headers.forEach((header, index) => {
+                            entry[header] = values[index];
+                        });
+                        scheduleData.push(entry);
+                    } else if (lines[i].trim() !== "") {
+                        console.warn(`Row ${i+1} has incorrect number of columns. Skipping.`);
+                    }
+                }
+                return scheduleData;
+            } catch (error) {
+                console.error("Error parsing embedded CSV data:", error);
+                showErrorMessage(`Failed to parse embedded schedule: ${error.message}.`);
+                return [];
+            }
+        }
+
+        function parseBaseTime(timeStr) {
+            const [hours, minutes] = timeStr.split(':').map(Number);
+            const date = new Date();
+            date.setHours(hours, minutes, 0, 0);
+            return date;
+        }
+
+        function recalculateAndParseProgramTimes() {
+            if (!rawProgram || rawProgram.length === 0) {
+                return;
+            }
+            parsedProgram = rawProgram.map(slot => {
+                const originalStartDate = parseBaseTime(slot.startTime);
+                const originalEndDate = parseBaseTime(slot.endTime);
+                const delayedStartDate = new Date(originalStartDate.getTime() + scheduleDelayMinutes * 60000);
+                const delayedEndDate = new Date(originalEndDate.getTime() + scheduleDelayMinutes * 60000);
+                return { ...slot, startDate: delayedStartDate, endDate: delayedEndDate };
+            });
+        }
+
+        function updateDelayNote() {
+            if (scheduleDelayMinutes !== 0) {
+                const absDelay = Math.abs(scheduleDelayMinutes);
+                const delayType = scheduleDelayMinutes > 0 ? "delayed" : "advanced";
+                delayNoteElement.textContent = `(Schedule ${absDelay} minutes ${delayType})`;
+                delayNoteElement.style.display = 'block';
+            } else {
+                delayNoteElement.style.display = 'none';
+            }
+        }
+
+        function updateTimer() {
+            if (parsedProgram.length === 0 && rawProgram.length > 0) {
+                recalculateAndParseProgramTimes();
+            }
+            if (parsedProgram.length === 0) {
+                return;
+            }
+
+            const now = new Date();
+            let currentSlot = null;
+            let minutesToDisplay = null;
+            let targetTimeForCountdown;
+
+            for (const slot of parsedProgram) {
+                if (now >= slot.startDate && now < slot.endDate) {
+                    currentSlot = slot;
+                    break;
+                }
+            }
+
+            const mainTimerText = countdownElement.textContent;
+            const showProgressBar = !isNaN(parseInt(mainTimerText)) && mainTimerText !== "--" && mainTimerText !== "END";
+
+            if (currentSlot) {
+                errorMessageElement.style.display = 'none';
+                const slotSpeakerTextLower = currentSlot.speaker.toLowerCase();
+                const breakEventsTexts = [
+                    "coffee / find your seat", "coffee break", "lunch",
+                    "coffee", "posters and mingle"
+                ];
+                const isSpecificallyABreak = breakEventsTexts.includes(slotSpeakerTextLower);
+
+                // --- MODIFICATION: Reset delay if a break starts and a delay is active ---
+                if (isSpecificallyABreak && scheduleDelayMinutes !== 0) {
+                    // console.log(`Delay of ${scheduleDelayMinutes} min reset at start of break: ${currentSlot.speaker}`);
+                    scheduleDelayMinutes = 0;
+                    recalculateAndParseProgramTimes(); // Recalculate all times with zero delay
+                    updateDelayNote();                 // Hide the delay note
+                    // Note: currentSlot's startDate and endDate are now updated within parsedProgram
+                    // The 'actualEndTime' used below will reflect the non-delayed time.
+                }
+                // --- End Modification ---
+
+                const actualEndTime = currentSlot.endDate; // Uses potentially updated (reset) endDate
+
+                const isGenerallyNonQuestionEvent =
+                    slotSpeakerTextLower.includes("doors open") ||
+                    slotSpeakerTextLower.includes("relocation") ||
+                    slotSpeakerTextLower.includes("concluding remarks") ||
+                    (actualEndTime - currentSlot.startDate) / 60000 <= VIRTUAL_DEADLINE_OFFSET_MINUTES;
+
+                const isNonQuestionEvent = isSpecificallyABreak || isGenerallyNonQuestionEvent;
+                const virtualDeadlineTime = new Date(actualEndTime.getTime() - VIRTUAL_DEADLINE_OFFSET_MINUTES * 60000);
+
+                speakerElement.textContent = currentSlot.speaker;
+                bodyElement.classList.remove('questions-mode');
+                minuteProgressBarFill.style.backgroundColor = 'white';
+
+                if (isSpecificallyABreak) {
+                    let breakDisplayInfo = currentSlot.speaker;
+                    // Find current slot's index in the *currently active* parsedProgram to find the next slot
+                    const currentSlotIndex = parsedProgram.findIndex(
+                        s => s.startDate.getTime() === currentSlot.startDate.getTime() && s.speaker === currentSlot.speaker
+                    );
+
+                    if (currentSlotIndex !== -1 && currentSlotIndex + 1 < parsedProgram.length) {
+                        const nextSlot = parsedProgram[currentSlotIndex + 1];
+                        const nextStartTime = nextSlot.startDate; // This will be the non-delayed time if reset occurred
+                        const nextHours = String(nextStartTime.getHours()).padStart(2, '0');
+                        const nextMinutes = String(nextStartTime.getMinutes()).padStart(2, '0');
+                        const formattedNextTime = `${nextHours}:${nextMinutes}`;
+                        breakDisplayInfo += `<br><span style="font-size: 0.6em; opacity: 0.85; line-height: 1.1;">Next: ${nextSlot.speaker} at ${formattedNextTime}</span>`;
+                        speakerElement.innerHTML = breakDisplayInfo;
+                    } else {
+                        speakerElement.textContent = currentSlot.speaker;
+                    }
+                    targetTimeForCountdown = actualEndTime;
+
+                } else if (!isNonQuestionEvent && now >= virtualDeadlineTime && now < actualEndTime) {
+                    speakerElement.textContent = "Questions";
+                    bodyElement.classList.add('questions-mode');
+                    minuteProgressBarFill.style.backgroundColor = 'red';
+                    targetTimeForCountdown = actualEndTime;
+                } else {
+                    if (isNonQuestionEvent) {
+                        targetTimeForCountdown = actualEndTime;
+                    } else {
+                        targetTimeForCountdown = virtualDeadlineTime;
+                    }
+                }
+
+                const msRemaining = targetTimeForCountdown - now;
+                minutesToDisplay = Math.ceil(msRemaining / 60000);
+                countdownElement.textContent = minutesToDisplay >= 0 ? minutesToDisplay : 0;
+
+            } else {
+                bodyElement.classList.remove('questions-mode');
+                minuteProgressBarFill.style.backgroundColor = 'white';
+                if (rawProgram.length > 0) {
+                     if (parsedProgram.length > 0 && now < parsedProgram[0].startDate) {
+                        speakerElement.textContent = "Program starting soon";
+                        countdownElement.textContent = "--";
+                    } else if (parsedProgram.length > 0 && now >= parsedProgram[parsedProgram.length - 1].endDate) {
+                        speakerElement.textContent = "Program Finished";
+                        countdownElement.textContent = "END";
+                    } else if (errorMessageElement.style.display === 'none') {
+                        speakerElement.textContent = "No current session";
+                        countdownElement.textContent = "--";
+                    }
+                }
+            }
+
+            if (showProgressBar) {
+                minuteProgressBarContainer.style.display = 'block';
+                const secondsInCurrentMinute = now.getSeconds();
+                const progressPercent = ((60 - secondsInCurrentMinute) / 60) * 100;
+                minuteProgressBarFill.style.width = `${progressPercent}%`;
+
+                if (bodyElement.classList.contains('questions-mode')) {
+                    minuteProgressBarFill.style.backgroundColor = 'red';
+                } else {
+                    minuteProgressBarFill.style.backgroundColor = 'white';
+                }
+            } else {
+                minuteProgressBarContainer.style.display = 'none';
+            }
+        }
+
+        function showErrorMessage(message) {
+            errorMessageElement.textContent = message;
+            errorMessageElement.style.display = 'block';
+            speakerElement.textContent = "Error";
+            countdownElement.textContent = "ERR";
+            if(timerInterval) clearInterval(timerInterval);
+        }
+
+        // --- Event Listeners & Initialization ---
+        document.addEventListener('keydown', function(event) {
+            if (event.key.toLowerCase() === 'd') {
+                // Check if a schedule is even loaded
+                if (rawProgram.length === 0) {
+                    alert("Schedule not loaded. Cannot apply delay.");
+                    return;
+                }
+                const delayInput = prompt(`Enter delay in minutes (current: ${scheduleDelayMinutes} mins). This delay will reset at the next break. Negative values advance.`, scheduleDelayMinutes);
+                if (delayInput !== null) {
+                    const newDelay = parseInt(delayInput);
+                    if (!isNaN(newDelay)) {
+                        scheduleDelayMinutes = newDelay;
+                        recalculateAndParseProgramTimes();
+                        updateDelayNote();
+                        updateTimer(); 
+                    } else if (delayInput.trim() === "") { // Empty input resets to 0 for this segment
+                        scheduleDelayMinutes = 0;
+                        recalculateAndParseProgramTimes();
+                        updateDelayNote();
+                        updateTimer();
+                    } else {
+                        alert("Invalid input. Please enter a number for the delay.");
+                    }
+                }
+            }
+        });
+
+        function initializeApp() {
+            const embeddedCsvElement = document.getElementById('scheduleDataCsv');
+            if (embeddedCsvElement) {
+                rawProgram = parseEmbeddedCsvData(embeddedCsvElement.textContent);
+            } else {
+                showErrorMessage("Embedded schedule data script tag not found. Critical error.");
+                return;
+            }
+
+            if (rawProgram.length > 0) {
+                errorMessageElement.style.display = 'none';
+                recalculateAndParseProgramTimes();
+                updateDelayNote();
+                updateTimer();
+                timerInterval = setInterval(updateTimer, 1000);
+            } else {
+                if (errorMessageElement.style.display === 'none') {
+                     showErrorMessage("Schedule is empty or could not be processed from embedded data.");
+                }
+            }
+        }
+
+        // Start the application
+        initializeApp();
+    </script>
+</body>
+</html>
