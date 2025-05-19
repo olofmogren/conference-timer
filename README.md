@@ -25,9 +25,9 @@ A full-screen HTML-based timer designed to display the current speaker/event and
 
 1.  **Edit Schedule**:
     -   Open `timer.html` with a text editor.
-    -   Locate the `<script type="text/csv-data" id="scheduleDataCsv">` tag (usually near the top, after the `<style>` block).
+    -   Locate the `<script type="text/csv-data" id="scheduleDataCsv">` tag (near the top, before the `<style>` block).
     -   The content inside this tag is the schedule in CSV format.
-    -   The first line **must** be the headers: `startTime,endTime,speaker`.
+    -   The first line must be the headers: `startTime,endTime,speaker`.
     -   Each subsequent line represents a schedule slot.
     -   `startTime` and `endTime` should be in **HH:MM** (24-hour) format.
     -   `speaker` is the text to be displayed for that slot.
@@ -48,7 +48,7 @@ Inside `index.html`, find the section:
 startTime,endTime,speaker
 08:00,09:00,Coffee / Find your seat
 09:00,09:15,Olof Mogren
-09:15,10:00,Keynote 1: Oisin Mac Aodha
+09:15,10:00,Keynote 1: Speaker Mac Speak
 ... (more entries)
 </script>
 <!-- End Embedded Schedule Data -->
